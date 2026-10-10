@@ -196,6 +196,7 @@ except FileNotFoundError:
         "Maharashtra_CCI_Map.geojson to your GitHub repository."
     )
 
+        
         # Download results
         st.download_button(
             label="Download CCI Ranking CSV",
