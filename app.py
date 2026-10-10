@@ -254,11 +254,47 @@ if geojson_path.exists():
                 coloraxis_colorbar_title="PCA CCI"
             )
 
-            # Display interactive map
+           
+            # Add district names directly on the map
+            import geopandas as gpd
+
+            # Calculate a representative point inside each district
+            label_points = gpd.GeoDataFrame(
+                map_df,
+                geometry=[
+                    feature["geometry"]
+                    for feature in geojson_data["features"]
+                ],
+                crs="EPSG:4326"
+            )
+
+            label_points["label_lon"] = (
+                label_points.geometry.representative_point().x
+            )
+            label_points["label_lat"] = (
+                label_points.geometry.representative_point().y
+            )
+
+            # Add labels to the choropleth map
+            fig_map.add_scattergeo(
+                lon=label_points["label_lon"],
+                lat=label_points["label_lat"],
+                text=label_points["District"],
+                mode="text",
+                textfont={
+                    "size": 8,
+                    "color": "black"
+                },
+                hoverinfo="skip",
+                showlegend=False
+            )
+
+            # Display map
             st.plotly_chart(
                 fig_map,
                 use_container_width=True
             )
+
 
             st.caption(
                 "Move your mouse over a district to see its name, "
