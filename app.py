@@ -1,9 +1,10 @@
 
 import json
-import streamlit as st
+from pathlib import Path
+
 import pandas as pd
 import plotly.express as px
-from pathlib import Path
+import streamlit as st
 
 # ==========================================
 # 1. PAGE CONFIGURATION
@@ -140,7 +141,7 @@ if ranking is not None:
             use_container_width=True
         )
 
-        # Download results
+        # Download ranking CSV
         st.download_button(
             label="Download CCI Ranking CSV",
             data=ranking.to_csv(index=False).encode("utf-8"),
@@ -163,86 +164,115 @@ else:
     )
 
 # ==========================================
-# 5. INTERACTIVE DISTRICT MAP
+# 5. INTERACTIVE MAHARASHTRA DISTRICT MAP
 # ==========================================
 st.divider()
 st.header("Maharashtra Climate Change Index Map")
 
-try:
-    with open(
-        "Maharashtra_CCI_Map.geojson",
-        "r",
-        encoding="utf-8"
-    ) as f:
-        geojson_data = json.load(f)
+geojson_path = Path("Maharashtra_CCI_Map.geojson")
 
-    map_df = pd.DataFrame([
-        feature["properties"]
-        for feature in geojson_data["features"]
-    ])
+if geojson_path.exists():
 
-    required_map_columns = [
-        "Map_District", "District", "Rank",
-        "PCA_CCI", "Category"
-    ]
+    try:
+        with open(geojson_path, "r", encoding="utf-8") as f:
+            geojson_data = json.load(f)
 
-    if not all(
-        col in map_df.columns
-        for col in required_map_columns
-    ):
-        st.error(
-            "The GeoJSON file is missing one or more "
-            "required district or CCI columns."
-        )
-    else:
-        fig_map = px.choropleth(
-            map_df,
-            geojson=geojson_data,
-            locations="Map_District",
-            featureidkey="properties.Map_District",
-            color="PCA_CCI",
-            hover_name="District",
-            hover_data={
-                "Rank": True,
-                "PCA_CCI": ":.2f",
-                "Category": True,
-                "Map_District": False
-            },
-            color_continuous_scale="YlOrRd",
-            projection="mercator",
-            title="District-wise Climate Change Index"
-        )
+        map_df = pd.DataFrame([
+            feature["properties"]
+            for feature in geojson_data["features"]
+        ])
 
-        fig_map.update_geos(
-            fitbounds="locations",
-            visible=False
-        )
+        required_map_columns = [
+            "Map_District",
+            "District",
+            "Rank",
+            "PCA_CCI",
+            "Category"
+        ]
 
-        fig_map.update_layout(
-            height=650,
-            margin={
-                "r": 10,
-                "t": 60,
-                "l": 10,
-                "b": 10
-            },
-            coloraxis_colorbar_title="PCA CCI"
-        )
+        if not all(
+            col in map_df.columns
+            for col in required_map_columns
+        ):
+            st.error(
+                "The GeoJSON file is missing required columns: "
+                "Map_District, District, Rank, PCA_CCI, or Category."
+            )
 
-        st.plotly_chart(
-            fig_map,
-            use_container_width=True
-        )
+        else:
+            # Ensure values are numeric
+            map_df["PCA_CCI"] = pd.to_numeric(
+                map_df["PCA_CCI"], errors="coerce"
+            )
 
-except FileNotFoundError:
+            map_df["Rank"] = pd.to_numeric(
+                map_df["Rank"], errors="coerce"
+            )
+
+            map_df = map_df.dropna(
+                subset=[
+                    "Map_District",
+                    "District",
+                    "PCA_CCI",
+                    "Rank"
+                ]
+            )
+
+            # Draw district map
+            fig_map = px.choropleth(
+                map_df,
+                geojson=geojson_data,
+                locations="Map_District",
+                featureidkey="properties.Map_District",
+                color="PCA_CCI",
+                hover_name="District",
+                hover_data={
+                    "Rank": True,
+                    "PCA_CCI": ":.2f",
+                    "Category": True,
+                    "Map_District": False
+                },
+                color_continuous_scale="YlOrRd",
+                projection="mercator",
+                title="District-wise Climate Change Index"
+            )
+
+            # Fit Maharashtra to the map
+            fig_map.update_geos(
+                fitbounds="locations",
+                visible=False
+            )
+
+            fig_map.update_layout(
+                height=750,
+                margin={
+                    "r": 10,
+                    "t": 60,
+                    "l": 10,
+                    "b": 10
+                },
+                coloraxis_colorbar_title="PCA CCI"
+            )
+
+            # Display interactive map
+            st.plotly_chart(
+                fig_map,
+                use_container_width=True
+            )
+
+            st.caption(
+                "Move your mouse over a district to see its name, "
+                "rank, PCA CCI score, and category."
+            )
+
+    except Exception as e:
+        st.error(f"Unable to display the district map: {e}")
+
+else:
     st.warning(
-        "Map file not found. Upload "
-        "Maharashtra_CCI_Map.geojson to the "
-        "GitHub repository."
+        "Map file not found. Please upload "
+        "Maharashtra_CCI_Map.geojson to your GitHub repository."
     )
-
-except Exception as e:
-    st.error(f"Unable to display the district map: {e}")
 
 # ==========================================
 # 6. PROJECT METHODOLOGY
