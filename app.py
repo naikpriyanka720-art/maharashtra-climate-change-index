@@ -1,3 +1,4 @@
+
 import json
 import streamlit as st
 import pandas as pd
@@ -28,9 +29,8 @@ for Maharashtra districts using climate indicators:
 - Minimum Temperature (Tmin)
 - Diurnal Temperature Range (DTR)
 
-Principal Component Analysis (PCA) is used in the
-project methodology to calculate the index and rank
-districts.
+Principal Component Analysis (PCA) is used to calculate
+the index weights and rank districts.
 """)
 
 st.divider()
@@ -47,15 +47,13 @@ uploaded_file = st.sidebar.file_uploader(
 
 if uploaded_file is not None:
     ranking = pd.read_csv(uploaded_file)
-
 elif Path("CCI_Ranking.csv").exists():
     ranking = pd.read_csv("CCI_Ranking.csv")
-
 else:
     ranking = None
 
 # ==========================================
-# 4. DISPLAY RESULTS
+# 4. DISPLAY RANKING RESULTS
 # ==========================================
 if ranking is not None:
 
@@ -68,7 +66,6 @@ if ranking is not None:
         ranking["Rank"] = pd.to_numeric(
             ranking["Rank"], errors="coerce"
         )
-
         ranking["PCA_CCI"] = pd.to_numeric(
             ranking["PCA_CCI"], errors="coerce"
         )
@@ -78,7 +75,6 @@ if ranking is not None:
         )
 
         ranking["Rank"] = ranking["Rank"].astype(int)
-
         ranking = ranking.sort_values("Rank")
 
         st.success("Climate index ranking loaded successfully!")
@@ -115,7 +111,7 @@ if ranking is not None:
             hide_index=True
         )
 
-        # Interactive chart
+        # Interactive bar chart
         st.header("Compare Districts")
 
         chart_data = ranking.sort_values(
@@ -144,59 +140,6 @@ if ranking is not None:
             use_container_width=True
         )
 
-# ==========================================
-# INTERACTIVE MAHARASHTRA DISTRICT CCI MAP
-# ==========================================
-
-st.subheader("Maharashtra Climate Change Index Map")
-
-try:
-    with open("Maharashtra_CCI_Map.geojson", "r", encoding="utf-8") as f:
-        geojson_data = json.load(f)
-
-    map_df = pd.DataFrame([
-        feature["properties"]
-        for feature in geojson_data["features"]
-    ])
-
-    fig_map = px.choropleth(
-        map_df,
-        geojson=geojson_data,
-        locations="Map_District",
-        featureidkey="properties.Map_District",
-        color="PCA_CCI",
-        hover_name="District",
-        hover_data={
-            "Rank": True,
-            "PCA_CCI": ":.2f",
-            "Category": True,
-            "Map_District": False
-        },
-        color_continuous_scale="YlOrRd",
-        projection="mercator",
-        title="District-wise Climate Change Index"
-    )
-
-    fig_map.update_geos(
-        fitbounds="locations",
-        visible=False
-    )
-
-    fig_map.update_layout(
-        height=650,
-        margin={"r": 10, "t": 60, "l": 10, "b": 10},
-        coloraxis_colorbar_title="PCA CCI"
-    )
-
-    st.plotly_chart(fig_map, use_container_width=True)
-
-except FileNotFoundError:
-    st.error(
-        "Map file not found. Please upload "
-        "Maharashtra_CCI_Map.geojson to your GitHub repository."
-    )
-
-        
         # Download results
         st.download_button(
             label="Download CCI Ranking CSV",
@@ -220,10 +163,91 @@ else:
     )
 
 # ==========================================
-# 5. PROJECT METHODOLOGY
+# 5. INTERACTIVE DISTRICT MAP
 # ==========================================
 st.divider()
+st.header("Maharashtra Climate Change Index Map")
 
+try:
+    with open(
+        "Maharashtra_CCI_Map.geojson",
+        "r",
+        encoding="utf-8"
+    ) as f:
+        geojson_data = json.load(f)
+
+    map_df = pd.DataFrame([
+        feature["properties"]
+        for feature in geojson_data["features"]
+    ])
+
+    required_map_columns = [
+        "Map_District", "District", "Rank",
+        "PCA_CCI", "Category"
+    ]
+
+    if not all(
+        col in map_df.columns
+        for col in required_map_columns
+    ):
+        st.error(
+            "The GeoJSON file is missing one or more "
+            "required district or CCI columns."
+        )
+    else:
+        fig_map = px.choropleth(
+            map_df,
+            geojson=geojson_data,
+            locations="Map_District",
+            featureidkey="properties.Map_District",
+            color="PCA_CCI",
+            hover_name="District",
+            hover_data={
+                "Rank": True,
+                "PCA_CCI": ":.2f",
+                "Category": True,
+                "Map_District": False
+            },
+            color_continuous_scale="YlOrRd",
+            projection="mercator",
+            title="District-wise Climate Change Index"
+        )
+
+        fig_map.update_geos(
+            fitbounds="locations",
+            visible=False
+        )
+
+        fig_map.update_layout(
+            height=650,
+            margin={
+                "r": 10,
+                "t": 60,
+                "l": 10,
+                "b": 10
+            },
+            coloraxis_colorbar_title="PCA CCI"
+        )
+
+        st.plotly_chart(
+            fig_map,
+            use_container_width=True
+        )
+
+except FileNotFoundError:
+    st.warning(
+        "Map file not found. Upload "
+        "Maharashtra_CCI_Map.geojson to the "
+        "GitHub repository."
+    )
+
+except Exception as e:
+    st.error(f"Unable to display the district map: {e}")
+
+# ==========================================
+# 6. PROJECT METHODOLOGY
+# ==========================================
+st.divider()
 st.header("Methodology")
 
 st.markdown("""
