@@ -507,6 +507,161 @@ The scores and rankings displayed above are loaded
 from the project's exported results.
 """)
 
+
+# ==========================================
+# ADDITIONAL PROJECT DOCUMENTATION
+# ==========================================
+
+st.divider()
+st.header("Interpretation of PCA Results")
+
+st.markdown("""
+### What do the PCA results tell us?
+
+- **PC1 explains 51.25%** of the variation in the four
+  standardized climate indicators.
+- **PC1 and PC2 together explain 82.30%** of the variation.
+- DTR has the highest weight in the selected PCA weighting
+  method, followed by Tmin, Tmax, and Rainfall.
+- Rainfall has a smaller weight in this particular index.
+
+These results describe the statistical structure of the
+selected indicators. They do not prove that one variable
+is the most important driver of climate change everywhere.
+""")
+
+st.subheader("How to Interpret the CCI Ranking")
+
+st.markdown("""
+A higher CCI score indicates a greater combined magnitude
+of the selected climate-trend indicators under this
+project's scoring and weighting procedure.
+
+The index is designed to compare districts. It should not
+be interpreted as a direct probability of a climate disaster
+or as a complete measure of climate vulnerability.
+""")
+
+# ==========================================
+# DATA SOURCES
+# ==========================================
+
+st.divider()
+st.header("Data Sources")
+
+st.markdown("""
+The project uses historical climate data obtained from
+Open-Meteo.
+
+- **Provider:** Open-Meteo
+- **Historical Weather API documentation:**
+  https://open-meteo.com/en/docs/historical-weather-api
+- **Geographical coverage:** 36 districts of Maharashtra
+- **Study period:** 2000–2025
+- **Indicators:** Rainfall, maximum temperature (Tmax),
+  minimum temperature (Tmin), and Diurnal Temperature
+  Range (DTR)
+
+The data were processed using Python before calculating
+the district-level scores and PCA-based index.
+""")
+
+# ==========================================
+# LIMITATIONS
+# ==========================================
+
+st.divider()
+st.header("Limitations")
+
+st.markdown("""
+1. The index depends on the quality and completeness of
+   the underlying climate data.
+2. Absolute trend magnitudes do not preserve direction:
+   an increasing trend and a decreasing trend can both
+   contribute positively to the score.
+3. PCA-based weights depend on the selected variables,
+   data, and preprocessing method.
+4. The index does not directly include population exposure,
+   infrastructure, socioeconomic vulnerability, or
+   adaptive capacity.
+5. The district ranking is a comparative statistical
+   result, not a complete climate-risk assessment.
+6. Further validation against independent climate studies
+   is needed before using the rankings for policy decisions.
+""")
+
+# ==========================================
+# SENSITIVITY ANALYSIS
+# ==========================================
+
+st.divider()
+st.header("Sensitivity Analysis")
+
+st.markdown("""
+The PCA-based ranking was compared with a ranking
+constructed using equal weights for the four climate
+variables.
+
+- **Spearman rank correlation:** 0.9807
+- **Average absolute rank difference:** approximately 1.56
+  positions
+- **Largest rank change in the comparison:** Ratnagiri,
+  which moved from rank 27 under PCA weighting to rank 21
+  under equal weighting.
+
+The high rank correlation suggests that the two weighting
+approaches produce broadly similar district rankings.
+However, this comparison is not independent validation
+of the index.
+""")
+
+# ==========================================
+# FUTURE IMPROVEMENTS
+# ==========================================
+
+st.divider()
+st.header("Future Improvements")
+
+st.markdown("""
+- Validate climate data coverage and document data
+  preprocessing in detail.
+- Compare alternative normalization and weighting methods.
+- Study increasing and decreasing climate trends separately.
+- Include additional reliable climate indicators.
+- Compare results with independent climate assessments.
+- Add more downloadable outputs and interactive filters.
+""")
+
+# ==========================================
+# TECHNOLOGY STACK
+# ==========================================
+
+st.divider()
+st.header("Technology Stack")
+
+st.markdown("""
+- **Python:** Data processing and statistical analysis
+- **Pandas and NumPy:** Data manipulation and calculations
+- **Scikit-learn:** Standardization and PCA
+- **Plotly:** Interactive charts and maps
+- **Streamlit:** Interactive dashboard
+- **Google Colab:** Analysis and experimentation
+- **GitHub:** Source code and project documentation
+""")
+
+# ==========================================
+# PROJECT LINKS
+# ==========================================
+
+st.divider()
+st.header("Project Links")
+
+st.markdown("""
+- [Open-Meteo Historical Weather API](https://open-meteo.com/en/docs/historical-weather-api)
+- [Streamlit Documentation](https://docs.streamlit.io/)
+- [Scikit-learn PCA Documentation](https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.PCA.html)
+""")
+
 st.caption(
     "Maharashtra Climate Change Index | "
     "Statistical analysis using Python and PCA"
