@@ -142,6 +142,6 @@ The results depend on the quality and coverage of the source data and the chosen
 ## Author and Project Links
 
 - **Live dashboard:** [Maharashtra Climate Change Index](https://maharashtra-climate-change-index-5mffmjufqf2aefflzfldtt.streamlit.app/)
-- **GitHub repository:** [Add your repository URL here]
+- **GitHub repository:** https://github.com/naikpriyanka720-art/maharashtra-climate-change-index
 
 This project demonstrates the application of statistical methods, PCA, Python programming, geospatial visualization, and dashboard development to a regional climate-analysis problem.
