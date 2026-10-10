@@ -1,4 +1,4 @@
-
+import json
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -143,6 +143,58 @@ if ranking is not None:
             fig,
             use_container_width=True
         )
+
+# ==========================================
+# INTERACTIVE MAHARASHTRA DISTRICT CCI MAP
+# ==========================================
+
+st.subheader("Maharashtra Climate Change Index Map")
+
+try:
+    with open("Maharashtra_CCI_Map.geojson", "r", encoding="utf-8") as f:
+        geojson_data = json.load(f)
+
+    map_df = pd.DataFrame([
+        feature["properties"]
+        for feature in geojson_data["features"]
+    ])
+
+    fig_map = px.choropleth(
+        map_df,
+        geojson=geojson_data,
+        locations="Map_District",
+        featureidkey="properties.Map_District",
+        color="PCA_CCI",
+        hover_name="District",
+        hover_data={
+            "Rank": True,
+            "PCA_CCI": ":.2f",
+            "Category": True,
+            "Map_District": False
+        },
+        color_continuous_scale="YlOrRd",
+        projection="mercator",
+        title="District-wise Climate Change Index"
+    )
+
+    fig_map.update_geos(
+        fitbounds="locations",
+        visible=False
+    )
+
+    fig_map.update_layout(
+        height=650,
+        margin={"r": 10, "t": 60, "l": 10, "b": 10},
+        coloraxis_colorbar_title="PCA CCI"
+    )
+
+    st.plotly_chart(fig_map, use_container_width=True)
+
+except FileNotFoundError:
+    st.error(
+        "Map file not found. Please upload "
+        "Maharashtra_CCI_Map.geojson to your GitHub repository."
+    )
 
         # Download results
         st.download_button(
