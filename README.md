@@ -36,16 +36,20 @@ The indicators are used to compare district-level climate trends. Their interpre
 
 ## Data Sources
 
-The project uses rainfall and temperature data collected from online sources and processed using Python.
+## Data Sources
 
-- **Geographical coverage:** 36 districts of Maharashtra
-- **Data frequency:** Monthly climate observations used in the analysis
-- **Climate indicators:** Rainfall, Tmax, Tmin, and DTR
-- **Data period:** [Insert the exact starting and ending years]
-- **Data source URLs:** [Insert the actual source links used to collect the data]
+Climate data for the Maharashtra Climate Change Index project were obtained from **Open-Meteo**.
 
-The source links, observation period, units, and any missing-data treatment should be documented to make the analysis reproducible.
+- **Data provider:** [Open-Meteo](https://open-meteo.com/)
+- **Historical weather documentation:** [Open-Meteo Historical Weather API](https://open-meteo.com/en/docs/historical-weather-api)
+- **Geographical coverage:** 36 districts of Maharashtra, India
+- **Observation period:** 2000–2025
+- **Climate variables:** Rainfall/precipitation, maximum temperature (Tmax), minimum temperature (Tmin), and Diurnal Temperature Range (DTR).
+- **Data frequency:** Monthly indicators derived from climate observations.
 
+The collected data were processed using Python. The analysis included climate-trend calculations, normalization, standardization, Principal Component Analysis (PCA), variable weighting, composite index construction, and district ranking.
+
+The results provide a comparative statistical assessment of the selected climate indicators across Maharashtra's districts. They should be interpreted in the context of the chosen variables, observation period, and index methodology.
 ## Methodology
 
 The analysis follows these steps:
