@@ -183,7 +183,22 @@ if geojson_path.exists() and ranking is not None:
         # Load GeoJSON map
         with open(geojson_path, "r", encoding="utf-8") as file:
             geojson_data = json.load(file)
+st.subheader("Debug: GeoJSON District Names")
 
+st.write("Number of map features:", len(geojson_data["features"]))
+
+st.write(
+    "Available properties:",
+    list(geojson_data["features"][0]["properties"].keys())
+)
+
+st.write(
+    "First 10 map district records:",
+    [
+        feature["properties"]
+        for feature in geojson_data["features"][:10]
+    ]
+)
         features = geojson_data.get("features", [])
 
         # Prepare CCI ranking data
