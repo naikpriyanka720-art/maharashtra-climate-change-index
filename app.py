@@ -164,61 +164,49 @@ else:
         "to the GitHub repository."
     )
 # ==========================================
+
+# ==========================================
 # 5. MAHARASHTRA DISTRICT MAP
 # ==========================================
 st.divider()
 st.header("Maharashtra Climate Change Index Map")
+
 st.write(
-    "Districts are divided into three equal groups "
-    "based on their PCA-based CCI ranks."
+    "The 36 districts are divided into three equal groups "
+    "based on their PCA-based CCI scores."
 )
 
 geojson_path = Path("Maharashtra_CCI_Map.geojson")
 
 if geojson_path.exists() and ranking is not None:
-
     try:
+        # Load GeoJSON map
         with open(geojson_path, "r", encoding="utf-8") as file:
             geojson_data = json.load(file)
 
         features = geojson_data.get("features", [])
-        st.write("GeoJSON properties for the first feature:")
-        st.json(features[0].get("properties", {}))
 
-        st.write("District names using dtname:")
-        st.write([
-            feature.get("properties", {}).get("dtname")
-            for feature in features[:10]
-        ])
-
-        st.write("District names using district_name:")
-        st.write([
-            feature.get("properties", {}).get("district_name")
-            for feature in features[:10]
-        ])
-        # Create the three groups from the existing ranking
+        # Prepare CCI ranking data
         map_df = ranking[
-            ["Rank", "District", "PCA_CCI"]
+            ["District", "PCA_CCI"]
         ].copy()
 
-        map_df["Rank"] = pd.to_numeric(
-            map_df["Rank"], errors="coerce"
-        )
         map_df["PCA_CCI"] = pd.to_numeric(
             map_df["PCA_CCI"], errors="coerce"
         )
 
         map_df = map_df.dropna(
-            subset=["Rank", "District", "PCA_CCI"]
+            subset=["District", "PCA_CCI"]
         ).copy()
 
-        map_df["Rank"] = map_df["Rank"].astype(int)
+        # Rank 1 = highest CCI
+        map_df = map_df.sort_values(
+            "PCA_CCI", ascending=False
+        ).reset_index(drop=True)
 
-        # Ensure rank 1 means the highest CCI
-        map_df = map_df.sort_values("PCA_CCI", ascending=False)
         map_df["Rank"] = range(1, len(map_df) + 1)
 
-        # Three equal groups: 12 districts per group
+        # Create three equal groups: 12 districts each
         map_df["CCI_Group"] = pd.cut(
             map_df["Rank"],
             bins=[0, 12, 24, 36],
@@ -229,43 +217,57 @@ if geojson_path.exists() and ranking is not None:
             ]
         )
 
-        # Match CCI names with GeoJSON district names
+        # Match Mumbai City in ranking to Mumbai in GeoJSON
         map_df["Map_District"] = map_df["District"].replace({
             "Mumbai City": "Mumbai"
         })
 
-        # Extract map district names from GeoJSON
-st.write("GeoJSON properties for the first feature:")
-st.json(features[0].get("properties", {}))
+        # Check GeoJSON district names
+        geo_names = {
+            str(feature.get("properties", {}).get("district_name", "")).strip()
+            for feature in features
+        }
 
-st.write("First 10 district names in GeoJSON:")
-st.write([
-    feature.get("properties", {}).get("district_name")
-    for feature in features[:10]
-])
+        # Report matching
+        matched_names = set(map_df["Map_District"]) & geo_names
 
-        geo_names = [name for name in geo_names if name]
-
-        # Check district matching before plotting
-        matched_names = set(map_df["Map_District"]) & set(geo_names)
-
-        st.write(f"Matched districts: {len(matched_names)} out of 36")
+        st.write(
+            f"Matched districts: {len(matched_names)} out of 36"
+        )
 
         unmatched = sorted(
-            set(map_df["Map_District"]) - set(geo_names)
+            set(map_df["Map_District"]) - geo_names
         )
 
         if unmatched:
-            st.warning(f"District names not matched: {unmatched}")
+            st.warning(f"Unmatched districts: {unmatched}")
 
-        # Three map colours
+        # Add group information to GeoJSON features
+        group_lookup = map_df.set_index("Map_District").to_dict("index")
+
+        for feature in features:
+            props = feature.get("properties", {})
+            district = str(props.get("district_name", "")).strip()
+
+            if district in group_lookup:
+                props["CCI_Group"] = str(
+                    group_lookup[district]["CCI_Group"]
+                )
+                props["PCA_CCI"] = float(
+                    group_lookup[district]["PCA_CCI"]
+                )
+                props["Rank"] = int(
+                    group_lookup[district]["Rank"]
+                )
+
+        # Three colours
         group_colors = {
             "Q1 - Highest CCI": "#8B0000",
             "Q2 - Medium CCI": "#FDBB84",
             "Q3 - Lowest CCI": "#FFF2AE"
         }
 
-        # Create interactive three-group map
+        # Interactive map
         fig_map = px.choropleth(
             map_df,
             geojson=geojson_data,
@@ -288,7 +290,7 @@ st.write([
                 ]
             },
             projection="mercator",
-            title="PCA-Based CCI: Three District Ranking Groups"
+            title="PCA-Based Climate Change Index: Three Groups"
         )
 
         fig_map.update_geos(
@@ -296,17 +298,17 @@ st.write([
             visible=False
         )
 
-        # Add district labels using the largest polygon ring
+        # Add district labels using polygon coordinates
         label_lons = []
         label_lats = []
         label_names = []
 
         for feature in features:
             props = feature.get("properties", {})
-            district_name = props.get("district_name")
-
+            district = props.get("district_name")
             geometry = feature.get("geometry", {})
-            if not geometry:
+
+            if not district or not geometry:
                 continue
 
             geom_type = geometry.get("type")
@@ -319,23 +321,25 @@ st.write([
             else:
                 continue
 
-            best_ring = None
-            best_size = 0
+            rings = [
+                polygon[0]
+                for polygon in polygons
+                if polygon and polygon[0]
+            ]
 
-            for polygon in polygons:
-                if polygon and polygon[0]:
-                    ring = polygon[0]
-                    if len(ring) > best_size:
-                        best_ring = ring
-                        best_size = len(ring)
+            if not rings:
+                continue
 
-            if best_ring and district_name:
-                lon = sum(point[0] for point in best_ring) / len(best_ring)
-                lat = sum(point[1] for point in best_ring) / len(best_ring)
+            # Use the largest exterior ring for the label
+            ring = max(rings, key=len)
 
-                label_lons.append(lon)
-                label_lats.append(lat)
-                label_names.append(district_name)
+            label_lons.append(
+                sum(point[0] for point in ring) / len(ring)
+            )
+            label_lats.append(
+                sum(point[1] for point in ring) / len(ring)
+            )
+            label_names.append(district)
 
         if label_names:
             fig_map.add_trace(
@@ -364,12 +368,12 @@ st.write([
         st.caption(
             "Dark red: ranks 1–12 (highest CCI); "
             "orange: ranks 13–24; "
-            "light yellow: ranks 25–36 (lowest CCI). "
-            "Hover over a district to view its rank and CCI score."
+            "light yellow: ranks 25–36 (lowest CCI)."
         )
 
-        # Show group sizes
+        # Show number of districts per group
         st.subheader("District Count by CCI Group")
+
         group_counts = (
             map_df["CCI_Group"]
             .value_counts(sort=False)
@@ -388,7 +392,7 @@ st.write([
 
 elif ranking is None:
     st.warning(
-        "Load CCI_Ranking.csv using the sidebar or add it "
+        "Upload CCI_Ranking.csv using the sidebar or add it "
         "to the same GitHub folder as app.py."
     )
 
@@ -397,7 +401,7 @@ else:
         "Maharashtra_CCI_Map.geojson was not found. "
         "Add this file to the same GitHub folder as app.py."
     )
-    
+
 # ============================================================
 # PCA ANALYSIS RESULTS
 # ============================================================
