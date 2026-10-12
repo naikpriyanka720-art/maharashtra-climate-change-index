@@ -222,10 +222,14 @@ if geojson_path.exists() and ranking is not None:
         })
 
         # Extract map district names from GeoJSON
-        geo_names = [
-            feature.get("properties", {}).get("district_name")
-            for feature in features
-        ]
+st.write("GeoJSON properties for the first feature:")
+st.json(features[0].get("properties", {}))
+
+st.write("First 10 district names in GeoJSON:")
+st.write([
+    feature.get("properties", {}).get("district_name")
+    for feature in features[:10]
+])
 
         geo_names = [name for name in geo_names if name]
 
