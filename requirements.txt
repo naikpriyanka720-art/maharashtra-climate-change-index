@@ -1,5 +1,9 @@
 
 streamlit
 pandas
-plotly
+numpy
 geopandas
+matplotlib
+plotly
+openpyxl
+requests
