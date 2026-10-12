@@ -182,7 +182,20 @@ if geojson_path.exists() and ranking is not None:
             geojson_data = json.load(file)
 
         features = geojson_data.get("features", [])
+        st.write("GeoJSON properties for the first feature:")
+        st.json(features[0].get("properties", {}))
 
+        st.write("District names using dtname:")
+        st.write([
+            feature.get("properties", {}).get("dtname")
+            for feature in features[:10]
+        ])
+
+        st.write("District names using district_name:")
+        st.write([
+            feature.get("properties", {}).get("district_name")
+            for feature in features[:10]
+        ])
         # Create the three groups from the existing ranking
         map_df = ranking[
             ["Rank", "District", "PCA_CCI"]
