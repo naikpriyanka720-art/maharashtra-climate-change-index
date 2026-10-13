@@ -1067,7 +1067,6 @@ st.caption(
     "Districts without matching CCI ranking data are excluded from "
     "the map and legend."
 )
-```
 # ============================================================
 # 8. PCA ANALYSIS RESULTS
 # ============================================================
