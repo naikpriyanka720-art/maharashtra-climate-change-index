@@ -620,8 +620,6 @@ if ranking is not None:
     st.plotly_chart(fig_groups, use_container_width=True)
 
 # ============================================================
-
-```python
 # ============================================================
 # SECTION 7: MAHARASHTRA DISTRICT CCI MAP
 # ============================================================
@@ -1184,10 +1182,6 @@ if show_map_table:
     col2.metric("Districts with ranks", ranked_count)
     col3.metric("Districts without ranks", unranked_count)
 
-# ============================================================
-# END OF SECTION 7
-# ============================================================
-```
 # ============================================================
 # 8. PCA ANALYSIS RESULTS
 # ============================================================
