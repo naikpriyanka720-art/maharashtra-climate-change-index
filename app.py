@@ -637,6 +637,56 @@ import unicodedata
 # 7.1 LOAD DISTRICT BOUNDARIES
 # ------------------------------------------------------------
 
+# ============================================================
+# LOAD MAHARASHTRA DISTRICT BOUNDARIES
+# ============================================================
+
+import os
+import geopandas as gpd
+import streamlit as st
+
+
+def load_district_boundaries():
+
+    # Add your boundary file path here if you know it.
+    possible_files = [
+        "maharashtra_districts.geojson",
+        "maharashtra_districts.shp",
+        "maharashtra_district_boundaries.geojson",
+        "data/maharashtra_districts.geojson",
+        "data/maharashtra_districts.shp",
+        "districts.geojson",
+        "districts.shp",
+    ]
+
+    for file_path in possible_files:
+
+        if not os.path.exists(file_path):
+            continue
+
+        try:
+            gdf = gpd.read_file(file_path)
+
+            if gdf.empty:
+                continue
+
+            if "geometry" not in gdf.columns:
+                continue
+
+            if gdf.crs is None:
+                gdf = gdf.set_crs("EPSG:4326")
+            else:
+                gdf = gdf.to_crs("EPSG:4326")
+
+            return gdf
+
+        except Exception as e:
+            st.warning(
+                f"Could not load boundary file "
+                f"{file_path}: {e}"
+            )
+
+    return None
 districts_gdf = load_district_boundaries()
 
 if districts_gdf is None:
