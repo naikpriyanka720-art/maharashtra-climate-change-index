@@ -621,544 +621,487 @@ if ranking is not None:
 # ============================================================
 
 # ============================================================
-# 7. MAHARASHTRA DISTRICT MAP
+
+# ============================================================
+# SECTION 7: DISTRICT MAP — MERGE, CLASSIFICATION AND PLOTTING
 # ============================================================
 
-st.divider()
-st.header("🗺️ Maharashtra CCI District Map")
+import os
+import re
+import tempfile
+import zipfile
+import unicodedata
+from pathlib import Path
+from io import BytesIO
 
-st.markdown(
-    """
-    District colors represent the three CCI rank groups. Each
-    district is labeled with its name and rank. Grey shading
-    indicates missing or unmatched ranking data.
-    """
-)
-
-uploaded_map = st.sidebar.file_uploader(
-    "Optional: Upload district boundaries GeoJSON",
-    type=["geojson", "json", "shp", "gpkg", "zip"],
-    key="map_upload",
-)
-
-map_data = None
-district_col = None
-map_source = None
+import geopandas as gpd
+import pandas as pd
+import matplotlib.pyplot as plt
+import streamlit as st
 
 
 # ------------------------------------------------------------
-# HELPER: NORMALIZE DISTRICT NAMES
+# 7.1 Normalize district names for reliable matching
 # ------------------------------------------------------------
-def _normalize_map_district(value):
-    """Normalize district names for reliable matching."""
-    import re
-    import unicodedata
 
+def normalize_district_name(value):
+    """Normalize district names to help match ranking and map data."""
     if pd.isna(value):
         return ""
 
     value = unicodedata.normalize("NFKD", str(value))
-    value = value.encode("ascii", "ignore").decode("ascii")
-    value = value.lower().strip()
-
+    value = "".join(c for c in value if not unicodedata.combining(c))
+    value = value.strip().lower()
     value = re.sub(r"\bdistrict\b", "", value)
-    value = re.sub(r"\bdist\b", "", value)
     value = re.sub(r"[^a-z0-9]", "", value)
 
+    # Common alternative spellings / historical names
     aliases = {
-        "ahmednagar": "ahilyanagar",
-        "ahilyanagar": "ahilyanagar",
         "aurangabad": "chhatrapatisambhajinagar",
         "chhatrapatisambhajinagar": "chhatrapatisambhajinagar",
         "osmanabad": "dharashiv",
         "dharashiv": "dharashiv",
-        "raigad": "raigad",
-        "raigarh": "raigad",
-        "buldana": "buldhana",
-        "buldhana": "buldhana",
-        "beed": "bid",
-        "bid": "bid",
-        "greaterbombay": "mumbai",
-        "mumbaicity": "mumbai",
-        "mumbaicitydistrict": "mumbai",
+        "ahmednagar": "ahilyanagar",
+        "ahilyanagar": "ahilyanagar",
+        "bombay": "mumbai",
+        "mumbaicity": "mumbaicity",
+        "mumbaicitydistrict": "mumbaicity",
         "mumbaisuburban": "mumbaisuburban",
-        "mumbaisuburb": "mumbaisuburban",
-        "yavatmal": "yavatmal",
-        "yavatmaldistrict": "yavatmal",
-        "sangli": "sangli",
-        "sanglidistrict": "sangli",
     }
 
     return aliases.get(value, value)
 
 
 # ------------------------------------------------------------
-# HELPER: FIND DISTRICT COLUMN
+# 7.2 Find columns without assuming exact column names
 # ------------------------------------------------------------
-def _find_district_column(df):
-    """Find the most likely district-name column."""
-    if df is None or df.empty:
-        raise ValueError("The district dataset is empty.")
 
-    candidates = [
-        "district",
-        "district_name",
-        "districtname",
-        "dist_name",
-        "distname",
-        "district_n",
-        "districts",
-        "name_2",
-        "dtname",
-        "dt_name",
-        "name",
-    ]
-
-    columns = list(df.columns)
+def find_column(df, candidates):
+    """Return the first matching column, ignoring case and spaces."""
     lookup = {
-        str(column).strip().lower().replace(" ", "_"): column
-        for column in columns
+        re.sub(r"[^a-z0-9]", "", str(col).lower()): col
+        for col in df.columns
     }
 
     for candidate in candidates:
-        if candidate in lookup:
-            return lookup[candidate]
+        key = re.sub(r"[^a-z0-9]", "", candidate.lower())
+        if key in lookup:
+            return lookup[key]
 
-    # Fallback: inspect column names containing "district".
-    for column in columns:
-        if "district" in str(column).strip().lower():
-            return column
+    return None
 
-    raise ValueError(
-        "Could not identify the district-name column. "
-        f"Available columns: {columns}"
-    )
+
+DISTRICT_CANDIDATES = [
+    "District",
+    "District_Name",
+    "District Name",
+    "district_name",
+    "NAME_2",
+    "NAME_1",
+    "dtname",
+    "DTNAME",
+    "districts",
+    "name",
+]
+
+RANK_CANDIDATES = [
+    "Rank",
+    "CCI_Rank",
+    "CCI Rank",
+    "Overall_Rank",
+    "Overall Rank",
+    "Final_Rank",
+    "Final Rank",
+    "rank",
+]
 
 
 # ------------------------------------------------------------
-# HELPER: STANDARDIZE RANKING DATA
+# 7.3 Read uploaded boundary files
+# Supports GeoJSON, JSON, Shapefile ZIP, and GeoPackage
 # ------------------------------------------------------------
-def _prepare_ranking_for_map(ranking):
-    """Return a clean district/rank table for mapping."""
 
-    if ranking is None or ranking.empty:
-        raise ValueError("CCI ranking data is empty or unavailable.")
+def read_boundary_file(uploaded_file):
+    """Read supported uploaded geographic boundary files."""
+    if uploaded_file is None:
+        return None
 
-    rank_df = ranking.copy()
+    filename = uploaded_file.name.lower()
+    file_bytes = uploaded_file.getvalue()
 
-    # Remove whitespace from column names.
-    rank_df.columns = [
-        str(column).strip() for column in rank_df.columns
-    ]
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
 
-    district_source = _find_district_column(rank_df)
+        if filename.endswith(".zip"):
+            zip_path = temp_path / "boundaries.zip"
+            zip_path.write_bytes(file_bytes)
 
-    # Locate a rank column, allowing common alternative names.
-    rank_candidates = [
-        "rank",
-        "cci_rank",
-        "cci rank",
-        "overall_rank",
-        "overall rank",
-        "district_rank",
-        "district rank",
-        "rank_x",
-        "rank_y",
-    ]
+            try:
+                with zipfile.ZipFile(zip_path, "r") as archive:
+                    archive.extractall(temp_path)
+            except zipfile.BadZipFile as exc:
+                raise ValueError("The uploaded ZIP file is invalid.") from exc
 
-    lower_columns = {
-        str(column).strip().lower(): column
-        for column in rank_df.columns
-    }
+            shp_files = list(temp_path.rglob("*.shp"))
+            geojson_files = list(temp_path.rglob("*.geojson"))
+            json_files = list(temp_path.rglob("*.json"))
+            gpkg_files = list(temp_path.rglob("*.gpkg"))
 
-    rank_source = None
+            if shp_files:
+                return gpd.read_file(shp_files[0])
+            if geojson_files:
+                return gpd.read_file(geojson_files[0])
+            if json_files:
+                return gpd.read_file(json_files[0])
+            if gpkg_files:
+                return gpd.read_file(gpkg_files[0])
 
-    for candidate in rank_candidates:
-        if candidate in lower_columns:
-            rank_source = lower_columns[candidate]
-            break
+            raise ValueError(
+                "The ZIP contains no .shp, .geojson, .json, or .gpkg file."
+            )
 
-    if rank_source is None:
+        suffix = Path(filename).suffix or ".geojson"
+        local_path = temp_path / ("boundaries" + suffix)
+        local_path.write_bytes(file_bytes)
+
+        if suffix in (".geojson", ".json", ".shp", ".gpkg"):
+            return gpd.read_file(local_path)
+
         raise ValueError(
-            "No rank column was found in the ranking dataset. "
-            f"Available columns: {rank_df.columns.tolist()}"
+            "Unsupported boundary format. Upload GeoJSON, JSON, "
+            "a zipped Shapefile, or a GeoPackage."
         )
 
-    rank_df = rank_df[[district_source, rank_source]].copy()
-    rank_df.columns = ["District", "Rank"]
 
-    rank_df["District"] = (
-        rank_df["District"].astype("string").str.strip()
-    )
+# ------------------------------------------------------------
+# 7.4 Create CCI groups from ranks
+# Smaller rank number means a better rank.
+# This is a fallback classification, not a CCI score threshold.
+# ------------------------------------------------------------
 
-    # Convert ranks such as '1' or '2.0' to numeric values.
-    rank_df["Rank"] = pd.to_numeric(
-        rank_df["Rank"], errors="coerce"
-    )
+def add_cci_groups(map_data, rank_col="Rank"):
+    """Add Rank and CCI_Group columns to a map GeoDataFrame."""
+    result = map_data.copy()
 
-    rank_df["_district_key"] = rank_df["District"].map(
-        _normalize_map_district
-    )
-
-    rank_df = rank_df[
-        rank_df["_district_key"].ne("")
-    ].copy()
-
-    # Keep one ranking row per normalized district.
-    rank_df = rank_df.drop_duplicates(
-        subset="_district_key", keep="first"
-    )
-
-    if rank_df["Rank"].notna().sum() == 0:
+    if rank_col not in result.columns:
         raise ValueError(
-            "The ranking dataset contains no valid numeric ranks."
+            f"Ranking column '{rank_col}' is missing. "
+            f"Available columns: {list(result.columns)}"
         )
 
-    return rank_df[
-        ["District", "Rank", "_district_key"]
-    ]
+    result["Rank"] = pd.to_numeric(result[rank_col], errors="coerce")
+
+    valid_ranks = sorted(result["Rank"].dropna().unique())
+
+    result["CCI_Group"] = "Unranked"
+
+    if len(valid_ranks) == 1:
+        group_lookup = {valid_ranks[0]: "Group 1"}
+
+    elif len(valid_ranks) == 2:
+        group_lookup = {
+            valid_ranks[0]: "Group 1",
+            valid_ranks[1]: "Group 3",
+        }
+
+    elif len(valid_ranks) >= 3:
+        # Divide the ordered unique ranks into three approximately
+        # equal-sized ordinal groups.
+        group_lookup = {}
+        n = len(valid_ranks)
+
+        for index, rank in enumerate(valid_ranks):
+            if index < n / 3:
+                group_lookup[rank] = "Group 1"
+            elif index < 2 * n / 3:
+                group_lookup[rank] = "Group 2"
+            else:
+                group_lookup[rank] = "Group 3"
+
+    else:
+        group_lookup = {}
+
+    result["CCI_Group"] = result["Rank"].map(group_lookup).fillna("Unranked")
+
+    return result
 
 
 # ------------------------------------------------------------
-# HELPER: MERGE BOUNDARIES WITH CCI RANKINGS
+# 7.5 Merge district boundaries with ranking data
 # ------------------------------------------------------------
-def merge_map(boundaries, ranking):
-    """Merge district boundaries with ranking data safely."""
 
+def merge_map(boundaries, ranking_df, district_col=None, rank_col=None):
+    """
+    Merge a district-boundary GeoDataFrame with the ranking DataFrame.
+
+    Parameters
+    ----------
+    boundaries : GeoDataFrame
+        Maharashtra district boundary polygons.
+    ranking_df : DataFrame
+        Existing CCI ranking results.
+    district_col : str, optional
+        District-name column in the boundary data.
+    rank_col : str, optional
+        Rank column in the ranking data.
+    """
     if boundaries is None or boundaries.empty:
         raise ValueError("The district boundary file is empty.")
 
-    if ranking is None or ranking.empty:
-        raise ValueError("CCI ranking data is unavailable.")
+    if ranking_df is None or ranking_df.empty:
+        raise ValueError("The CCI ranking data is empty.")
 
-    geo = boundaries.copy()
+    boundaries = boundaries.copy()
+    ranking_df = ranking_df.copy()
 
-    # Prevent Rank_x/Rank_y collisions from boundary properties.
-    geo.columns = [
-        str(column).strip() for column in geo.columns
-    ]
+    # Detect boundary district column
+    if district_col is None or district_col not in boundaries.columns:
+        district_col = find_column(boundaries, DISTRICT_CANDIDATES)
 
-    district_source = _find_district_column(geo)
+    if district_col is None:
+        raise ValueError(
+            "Cannot identify the district-name column in the boundary file. "
+            f"Available columns: {list(boundaries.columns)}"
+        )
 
-    # Remove old rank attributes from the boundary layer.
-    # Ranking data must be the authoritative source of CCI rank.
-    old_rank_columns = [
-        column
-        for column in geo.columns
-        if str(column).strip().lower() in {
-            "rank",
-            "rank_x",
-            "rank_y",
-            "cci_rank",
-            "overall_rank",
-            "district_rank",
-        }
-    ]
-
-    geo = geo.drop(
-        columns=old_rank_columns, errors="ignore"
+    # Detect ranking district column
+    ranking_district_col = find_column(
+        ranking_df, DISTRICT_CANDIDATES
     )
 
-    geo["_district_key"] = geo[district_source].map(
-        _normalize_map_district
+    if ranking_district_col is None:
+        raise ValueError(
+            "Cannot identify the district-name column in the ranking data. "
+            f"Available columns: {list(ranking_df.columns)}"
+        )
+
+    # Detect rank column
+    if rank_col is None or rank_col not in ranking_df.columns:
+        rank_col = find_column(ranking_df, RANK_CANDIDATES)
+
+    if rank_col is None:
+        raise ValueError(
+            "Cannot identify a rank column in the ranking data. "
+            f"Available columns: {list(ranking_df.columns)}"
+        )
+
+    # Build normalized join keys
+    boundaries["_district_key"] = boundaries[district_col].map(
+        normalize_district_name
     )
 
-    rank_df = _prepare_ranking_for_map(ranking)
+    ranking_df["_district_key"] = ranking_df[
+        ranking_district_col
+    ].map(normalize_district_name)
 
-    # Ensure one row per key on the ranking side.
-    rank_df = rank_df.drop_duplicates(
-        subset="_district_key", keep="first"
+    ranking_df["Rank"] = pd.to_numeric(
+        ranking_df[rank_col], errors="coerce"
     )
 
-    merged = geo.merge(
-        rank_df[["_district_key", "Rank"]],
+    # Keep one ranking record per district. If duplicate rows exist,
+    # use the best (lowest numerical) rank.
+    ranking_clean = (
+        ranking_df.loc[
+            ranking_df["_district_key"].ne(""),
+            ["_district_key", "Rank"],
+        ]
+        .dropna(subset=["Rank"])
+        .groupby("_district_key", as_index=False)["Rank"]
+        .min()
+    )
+
+    # Remove an old rank column from boundaries if it already exists.
+    if "Rank" in boundaries.columns:
+        boundaries = boundaries.drop(columns=["Rank"])
+
+    # Left join preserves every district polygon.
+    map_data = boundaries.merge(
+        ranking_clean,
         on="_district_key",
         how="left",
         validate="many_to_one",
     )
 
-    # Defensive guarantee: downstream code always receives Rank.
-    if "Rank" not in merged.columns:
-        merged["Rank"] = pd.NA
+    # Make sure rank exists and classification is created before plotting.
+    map_data["Rank"] = pd.to_numeric(map_data["Rank"], errors="coerce")
+    map_data = add_cci_groups(map_data, "Rank")
 
-    merged["Rank"] = pd.to_numeric(
-        merged["Rank"], errors="coerce"
-    )
+    # Report unmatched districts to help diagnose missing data.
+    unmatched = map_data.loc[
+        map_data["Rank"].isna(), district_col
+    ].dropna().astype(str).unique().tolist()
 
-    merged["District"] = (
-        merged[district_source].astype("string").str.strip()
-    )
-
-    # Identify boundary districts that did not match.
-    unmatched_map = sorted(
-        merged.loc[
-            merged["Rank"].isna(), "District"
-        ].dropna().astype(str).unique().tolist()
-    )
-
-    # Identify ranked districts absent from the map.
-    map_keys = set(
-        merged["_district_key"].dropna().tolist()
-    )
-
-    unmatched_ranking = sorted(
-        rank_df.loc[
-            ~rank_df["_district_key"].isin(map_keys),
-            "District",
-        ].dropna().astype(str).unique().tolist()
-    )
-
-    # Preserve the existing boundary geometry and CRS.
-    merged = gpd.GeoDataFrame(
-        merged,
-        geometry=geo.geometry.name,
-        crs=geo.crs,
-    )
-
-    # Remove temporary join key.
-    merged = merged.drop(
-        columns=["_district_key"], errors="ignore"
-    )
-
-    return (
-        merged,
-        "District",
-        unmatched_map,
-        unmatched_ranking,
-    )
-
-
-# ------------------------------------------------------------
-# LOAD DISTRICT BOUNDARIES
-# ------------------------------------------------------------
-try:
-    boundaries = None
-
-    if uploaded_map is not None:
-        import tempfile
-        import zipfile
-
-        file_bytes = uploaded_map.getvalue()
-        filename = uploaded_map.name.lower()
-
-        if filename.endswith((".geojson", ".json")):
-            boundaries = read_geojson_bytes(file_bytes)
-
-        elif filename.endswith((".shp", ".gpkg")):
-            suffix = Path(filename).suffix
-
-            with tempfile.TemporaryDirectory() as tmpdir:
-                temp_path = Path(tmpdir) / (
-                    "boundaries" + suffix
-                )
-                temp_path.write_bytes(file_bytes)
-
-                boundaries = gpd.read_file(temp_path).copy()
-
-        elif filename.endswith(".zip"):
-            with tempfile.TemporaryDirectory() as tmpdir:
-                zip_path = Path(tmpdir) / "boundaries.zip"
-                zip_path.write_bytes(file_bytes)
-
-                extracted = Path(tmpdir) / "extracted"
-                extracted.mkdir()
-
-                # Prevent ZIP path traversal.
-                with zipfile.ZipFile(zip_path) as zf:
-                    root = extracted.resolve()
-
-                    for member in zf.infolist():
-                        target = (
-                            extracted / member.filename
-                        ).resolve()
-
-                        if target != root and root not in target.parents:
-                            raise ValueError(
-                                "Unsafe path found in ZIP archive."
-                            )
-
-                    zf.extractall(extracted)
-
-                geojson_files = list(
-                    extracted.rglob("*.geojson")
-                )
-                shp_files = list(extracted.rglob("*.shp"))
-                gpkg_files = list(extracted.rglob("*.gpkg"))
-
-                if geojson_files:
-                    boundaries = gpd.read_file(
-                        geojson_files[0]
-                    ).copy()
-
-                elif shp_files:
-                    boundaries = gpd.read_file(
-                        shp_files[0]
-                    ).copy()
-
-                elif gpkg_files:
-                    boundaries = gpd.read_file(
-                        gpkg_files[0]
-                    ).copy()
-
-                else:
-                    raise ValueError(
-                        "ZIP contains no GeoJSON, Shapefile, "
-                        "or GeoPackage."
-                    )
-
-        map_source = uploaded_map.name
-
-    else:
-        boundaries, map_source = load_local_map()
-
-    # --------------------------------------------------------
-    # DOWNLOAD DEFAULT MAP IF NECESSARY
-    # --------------------------------------------------------
-    if boundaries is None:
-        st.info(
-            "No local district boundary map was found. "
-            "Attempting to download the default boundary file."
+    if unmatched:
+        st.warning(
+            "No matching CCI rank was found for these map districts: "
+            + ", ".join(unmatched)
         )
 
-        try:
-            import requests
+    return map_data, district_col
 
-            response = requests.get(
-                MAP_URL,
-                timeout=30,
+
+# ------------------------------------------------------------
+# 7.6 Draw the district CCI map
+# ------------------------------------------------------------
+
+def draw_district_map(map_data, district_col):
+    """Plot district boundaries colored by CCI rank group."""
+    if map_data is None or map_data.empty:
+        raise ValueError("There is no map data to plot.")
+
+    if district_col not in map_data.columns:
+        raise ValueError(
+            f"District column '{district_col}' is missing from map data."
+        )
+
+    if "Rank" not in map_data.columns:
+        raise ValueError("Rank is missing. Run merge_map() first.")
+
+    # Safety check: fix missing CCI_Group instead of raising KeyError.
+    if "CCI_Group" not in map_data.columns:
+        map_data = add_cci_groups(map_data, "Rank")
+
+    colors = {
+        "Group 1": "#238443",
+        "Group 2": "#F0C419",
+        "Group 3": "#CB181D",
+        "Unranked": "#D9D9D9",
+    }
+
+    fig, ax = plt.subplots(figsize=(12, 12))
+
+    for group in ["Group 1", "Group 2", "Group 3", "Unranked"]:
+        subset = map_data.loc[map_data["CCI_Group"] == group]
+
+        if not subset.empty:
+            subset.plot(
+                ax=ax,
+                color=colors[group],
+                edgecolor="#333333",
+                linewidth=0.7,
+                label=group,
+                missing_kwds={
+                    "color": colors["Unranked"],
+                    "edgecolor": "#333333",
+                },
             )
-            response.raise_for_status()
 
-            boundaries = gpd.read_file(
-                io.BytesIO(response.content)
-            )
-            map_source = "Downloaded Maharashtra GeoJSON"
+    # Label polygons using representative points, which generally
+    # remain inside each district polygon.
+    for _, row in map_data.iterrows():
+        geometry = row.geometry
 
-        except Exception as exc:
-            st.warning(
-                "Unable to download the default boundary map. "
-                "Upload a Maharashtra district boundary file "
-                f"using the sidebar. Details: {exc}"
-            )
+        if geometry is None or geometry.is_empty:
+            continue
 
-    # --------------------------------------------------------
-    # VALIDATE AND DISPLAY THE MAP
-    # --------------------------------------------------------
-    if boundaries is not None and ranking is not None:
+        point = geometry.representative_point()
+        district_name = str(row[district_col])
+        rank = row["Rank"]
 
-        if boundaries.empty:
-            st.error(
-                "The boundary file contains no district features."
-            )
+        if pd.notna(rank):
+            label = f"{district_name}\nR:{int(rank)}"
+        else:
+            label = f"{district_name}\nUnranked"
+
+        ax.annotate(
+            label,
+            xy=(point.x, point.y),
+            ha="center",
+            va="center",
+            fontsize=6,
+            color="black",
+        )
+
+    ax.set_title(
+        "Maharashtra Climate Change Index (CCI) — District Map",
+        fontsize=15,
+        fontweight="bold",
+        pad=15,
+    )
+
+    ax.set_axis_off()
+    ax.legend(
+        title="CCI Rank Group",
+        loc="lower left",
+        frameon=True,
+        fontsize=9,
+    )
+
+    fig.tight_layout()
+    return fig
+
+
+# ------------------------------------------------------------
+# 7.7 Streamlit map interface
+# ------------------------------------------------------------
+
+st.subheader("Maharashtra District CCI Map")
+
+map_upload = st.file_uploader(
+    "Upload district boundaries (optional)",
+    type=["geojson", "json", "zip", "gpkg", "shp"],
+    help=(
+        "For Shapefiles, upload a ZIP containing .shp, .shx, "
+        ".dbf and .prj files."
+    ),
+    key="cci_map_upload",
+)
+
+# 'ranking' should be your existing CCI ranking DataFrame.
+# It must contain district names and a numeric Rank column,
+# or another recognizable rank-column name.
+if "ranking" not in globals() or not isinstance(ranking, pd.DataFrame):
+    st.error(
+        "The CCI ranking DataFrame named 'ranking' was not found. "
+        "Run your existing CCI calculation and ranking section first."
+    )
+
+else:
+    try:
+        boundaries = None
+
+        if map_upload is not None:
+            boundaries = read_boundary_file(map_upload)
 
         else:
-            if boundaries.crs is None:
-                st.error(
-                    "The boundary file has no coordinate reference "
-                    "system (CRS). Correct the source file and "
-                    "upload it again."
-                )
+            # Optional local boundary source.
+            # Define MAP_URL earlier in your app if you want to use it.
+            map_url = globals().get("MAP_URL")
 
+            if map_url:
+                boundaries = gpd.read_file(map_url)
             else:
-                # Reproject geographic features for consistent plotting.
-                boundaries = boundaries.to_crs("EPSG:4326")
+                st.info(
+                    "Upload a district boundary file to display the map."
+                )
 
-                (
-                    map_data,
+        if boundaries is not None:
+            map_data, district_col = merge_map(
+                boundaries=boundaries,
+                ranking_df=ranking,
+            )
+
+            fig_map = draw_district_map(map_data, district_col)
+            st.pyplot(fig_map, use_container_width=True)
+            plt.close(fig_map)
+
+            with st.expander("View merged map data"):
+                display_cols = [
                     district_col,
-                    unmatched_map,
-                    unmatched_ranking,
-                ) = merge_map(boundaries, ranking)
-
-                matched_count = int(
-                    map_data["Rank"].notna().sum()
+                    "Rank",
+                    "CCI_Group",
+                ]
+                st.dataframe(
+                    map_data[display_cols].drop_duplicates(),
+                    use_container_width=True,
                 )
 
-                st.caption(
-                    f"Boundary source: {map_source}"
-                )
-
-                st.write(
-                    f"Matched districts: **{matched_count}** "
-                    f"out of **{len(map_data)} map features**."
-                )
-
-                if unmatched_map:
-                    st.warning(
-                        "Map districts without matching CCI ranks: "
-                        + ", ".join(unmatched_map)
-                    )
-
-                if unmatched_ranking:
-                    st.warning(
-                        "Ranked districts not found in the map: "
-                        + ", ".join(unmatched_ranking)
-                    )
-
-                if matched_count > 0:
-
-                    # Use the existing map-drawing function.
-                    fig_map = draw_district_map(
-                        map_data,
-                        district_col,
-                    )
-
-                    st.pyplot(
-                        fig_map,
-                        use_container_width=True,
-                    )
-
-                    # Download high-resolution map.
-                    image_buffer = io.BytesIO()
-
-                    fig_map.savefig(
-                        image_buffer,
-                        format="png",
-                        dpi=300,
-                        bbox_inches="tight",
-                        facecolor="white",
-                    )
-
-                    image_buffer.seek(0)
-
-                    st.download_button(
-                        label="⬇️ Download CCI District Map (PNG)",
-                        data=image_buffer.getvalue(),
-                        file_name=(
-                            "Maharashtra_PCA_CCI_"
-                            "Three_Groups_Map.png"
-                        ),
-                        mime="image/png",
-                    )
-
-                    plt.close(fig_map)
-
-                else:
-                    st.error(
-                        "No district rankings matched the boundary "
-                        "data. Verify the district-name columns and "
-                        "the names in your ranking dataset."
-                    )
-
-    elif boundaries is not None:
+    except Exception as exc:
+        st.error(f"Unable to generate the district map: {exc}")
         st.info(
-            "District boundaries are loaded, but the ranking data "
-            "is unavailable. Load the CCI ranking dataset to display "
-            "the colored district map."
+            "Check that your boundary file contains district polygons "
+            "and that district names match the ranking data."
         )
-
-    else:
-        st.error(
-            "District boundaries could not be loaded. Upload a "
-            "valid Maharashtra district boundary file."
-        )
-
-except Exception as exc:
-    st.error(
-        f"Unable to display the district map: {exc}"
-    )
-    st.exception(exc)
-
 # ============================================================
 # 8. PCA ANALYSIS RESULTS
 # ============================================================
