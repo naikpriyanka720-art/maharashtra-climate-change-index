@@ -5,7 +5,7 @@ numpy
 geopandas
 shapely
 pyproj
-fiona
+pyogrio
 matplotlib
 plotly
 openpyxl
