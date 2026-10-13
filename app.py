@@ -850,11 +850,14 @@ ranking_data["__district_key"] = (
     .apply(normalize_district_name)
 )
 
+
 if ranking_score_column is not None:
     ranking_data["__cci_score"] = pd.to_numeric(
         ranking_data[ranking_score_column],
         errors="coerce",
-    )
+    ).astype(float)
+else:
+    ranking_data["__cci_score"] = float("nan")
 
 if ranking_rank_column is not None:
     ranking_data["__rank"] = pd.to_numeric(
@@ -1003,6 +1006,12 @@ merged["Rank"] = merged["__rank"].apply(
         f"{int(value)}" if pd.notna(value) else "Not available"
     )
 )
+
+merged["__cci_score"] = pd.to_numeric(
+    merged["__cci_score"],
+    errors="coerce"
+)
+
 merged["CCI Score"] = merged["__cci_score"].round(3)
 merged["Map label"] = merged.apply(
     lambda row: (
