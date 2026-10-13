@@ -823,85 +823,119 @@ else:
     )
 
 
-    # --------------------------------------------------------
-    # 4. LOAD DISTRICT BOUNDARIES
-    # --------------------------------------------------------
+    
+# ------------------------------------------------------------
+# AUTOMATIC MAHARASHTRA DISTRICT BOUNDARY LOADER
+# No file upload required
+# ------------------------------------------------------------
 
-    # Reuse an already-loaded GeoDataFrame where possible.
-    boundaries = None
+from pathlib import Path
+import streamlit as st
+import geopandas as gpd
 
-    for variable_name in ["boundaries", "maha", "map_boundaries"]:
-        candidate = globals().get(variable_name)
+IMD_GEOJSON_URL = (
+    "https://mausam.imd.gov.in/imd_latest/contents/"
+    "district_shapefiles/sd_boundary_rainfall.json"
+)
 
-        if isinstance(candidate, gpd.GeoDataFrame):
-            boundaries = candidate.copy()
-            break
 
-    # If boundaries are not already loaded, allow file upload.
-    if boundaries is None:
-        st.subheader("Maharashtra District Map")
+@st.cache_data(show_spinner=False, ttl=86400)
+def load_maharashtra_boundaries():
+    """Load district boundaries automatically from local or online data."""
 
-        uploaded_boundary = st.file_uploader(
-            "Upload Maharashtra district boundaries",
-            type=["geojson", "json", "zip", "gpkg", "shp"],
-            key="cci_district_boundary_upload",
-            help=(
-                "Upload a district GeoJSON, zipped shapefile, "
-                "or GeoPackage."
-            ),
+    # 1. Search the repository for an existing boundary file.
+    repo_root = Path(__file__).resolve().parent
+
+    extensions = ["*.geojson", "*.gpkg", "*.shp"]
+
+    for pattern in extensions:
+        for path in repo_root.rglob(pattern):
+            # Avoid scanning virtual environments and Git internals.
+            if any(
+                part.startswith(".")
+                or part in {"venv", "__pycache__", "node_modules"}
+                for part in path.parts
+            ):
+                continue
+
+            try:
+                gdf = gpd.read_file(path)
+
+                district_col = find_column(
+                    gdf,
+                    [
+                        "District", "district", "DISTRICT",
+                        "district_name", "District_Name",
+                        "dtname", "NAME_2",
+                    ],
+                )
+
+                if district_col and not gdf.empty:
+                    return gdf
+
+            except Exception:
+                continue
+
+    # 2. If no local file exists, load online IMD boundaries.
+    try:
+        gdf = gpd.read_file(IMD_GEOJSON_URL)
+
+        state_col = find_column(
+            gdf,
+            ["state", "STATE", "state_name", "State_Name"],
         )
 
-        if uploaded_boundary is not None:
-            try:
-                filename = uploaded_boundary.name.lower()
+        if state_col:
+            state_names = (
+                gdf[state_col].astype(str).str.strip().str.lower()
+            )
 
-                if filename.endswith(".zip"):
-                    with tempfile.TemporaryDirectory() as temp_dir:
-                        zip_path = os.path.join(temp_dir, "boundaries.zip")
+            gdf = gdf[
+                state_names.isin(
+                    ["maharashtra", "maharastra"]
+                )
+            ].copy()
 
-                        with open(zip_path, "wb") as file:
-                            file.write(uploaded_boundary.getvalue())
+        if gdf.empty:
+            raise ValueError(
+                "No Maharashtra features found in the online GeoJSON."
+            )
 
-                        with zipfile.ZipFile(zip_path) as archive:
-                            archive.extractall(temp_dir)
+        return gdf
 
-                        shp_files = list(
-                            Path(temp_dir).rglob("*.shp")
-                        )
-
-                        if shp_files:
-                            boundaries = gpd.read_file(shp_files[0])
-
-                        else:
-                            geojson_files = list(
-                                Path(temp_dir).rglob("*.geojson")
-                            )
-
-                            if geojson_files:
-                                boundaries = gpd.read_file(
-                                    geojson_files[0]
-                                )
-                            else:
-                                st.error(
-                                    "No shapefile or GeoJSON found "
-                                    "inside the ZIP file."
-                                )
-
-                elif filename.endswith(".shp"):
-                    st.error(
-                        "Upload the shapefile components together "
-                        "as a ZIP file, including .shp, .shx, .dbf "
-                        "and .prj files."
-                    )
-
-                else:
-                    boundaries = gpd.read_file(uploaded_boundary)
-
-            except Exception as error:
-                st.error(f"Could not load district boundaries: {error}")
+    except Exception as exc:
+        raise RuntimeError(
+            "Could not load district boundaries automatically. "
+            "Check the online data source or include a district "
+            "GeoJSON file in your GitHub repository."
+        ) from exc
 
 
-    # --------------------------------------------------------
+# ------------------------------------------------------------
+# LOAD BOUNDARIES AUTOMATICALLY
+# ------------------------------------------------------------
+
+try:
+    boundaries = load_maharashtra_boundaries()
+
+    st.success(
+        f"District boundaries loaded automatically: "
+        f"{len(boundaries)} features"
+    )
+
+except Exception as exc:
+    boundaries = None
+    st.error(str(exc))
+
+
+# ------------------------------------------------------------
+# CONNECT TO THE EXISTING MAP SECTION
+# ------------------------------------------------------------
+
+if boundaries is not None:
+    # Use this variable in your existing merge and plotting code.
+    # Do not call st.file_uploader().
+    pass    # --------------------------------------------------------
     # 5. MATCH DISTRICTS AND CREATE THE MAP DATAFRAME
     # --------------------------------------------------------
 
