@@ -1098,22 +1098,18 @@ for feature, feature_id in zip(
 center_lat = float(map_data.geometry.centroid.y.mean())
 center_lon = float(map_data.geometry.centroid.x.mean())
 
-fig = px.choropleth_mapbox(
+
+# Draw the interactive district map
+fig = px.choropleth_map(
     map_data,
     geojson=geojson_data,
     locations="__feature_id",
     featureidkey="properties.__feature_id",
     color="__map_value",
     color_continuous_scale=color_scale,
-    range_color=(
-        float(map_data["__map_value"].min()),
-        float(map_data["__map_value"].max())
-        if map_data["__map_value"].max() != map_data["__map_value"].min()
-        else float(map_data["__map_value"].min()) + 1,
-    ),
     hover_name="District",
     hover_data=hover_fields,
-    mapbox_style="open-street-map",
+    map_style="open-street-map",
     center={"lat": center_lat, "lon": center_lon},
     zoom=5.5,
     opacity=0.70,
@@ -1124,12 +1120,10 @@ fig = px.choropleth_mapbox(
     title=map_heading,
 )
 
-# Add district names and ranks on top of the colored boundaries.
-# This lets users see names without hovering over every district.
+# Add district names and ranks to the map
 label_points = map_data.copy()
 
 try:
-    # Project before calculating centroids for better geographic accuracy.
     label_points = label_points.to_crs("EPSG:3857")
     label_points["__label_point"] = label_points.geometry.centroid
     label_points = label_points.set_geometry("__label_point").to_crs(
@@ -1140,7 +1134,7 @@ try:
     label_points["__label_lon"] = label_points.geometry.x
 
     fig.add_trace(
-        go.Scattermapbox(
+        go.Scattermap(
             lat=label_points["__label_lat"],
             lon=label_points["__label_lon"],
             mode="text",
@@ -1150,9 +1144,8 @@ try:
             showlegend=False,
         )
     )
-except Exception:
-    # The map remains usable even if labels cannot be calculated.
-    pass
+except Exception as error:
+    st.warning(f"District labels could not be displayed: {error}")
 
 fig.update_layout(
     height=700,
@@ -1161,7 +1154,6 @@ fig.update_layout(
 )
 
 st.plotly_chart(fig, use_container_width=True)
-
 
 # ------------------------------------------------------------
 # 9. SHOW DISTRICT RANKING TABLE BELOW THE MAP
