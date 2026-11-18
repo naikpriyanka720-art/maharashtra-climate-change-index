@@ -123,4 +123,3 @@ st.caption(
     "Maharashtra Climate Change Index | "
     "PCA-based district comparison | Python + Streamlit"
 )
-
